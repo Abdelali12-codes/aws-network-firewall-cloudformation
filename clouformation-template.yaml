@@ -1,0 +1,146 @@
+Parameters:
+
+  VpcCIDR:
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 10.192.0.0/16
+
+  InstanceSubnetCIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+    Type: String
+    Default: 10.192.11.0/24
+    
+  FirewallSubnetCIDR:
+    Description: Please enter the IP range for the firewall subnet 
+    Type: String
+    Default: 10.192.12.0/24
+    
+ Resources:
+ 
+    VPC:
+      Type: AWS::EC2::VPC
+      Properties:
+        CidrBlock: !Ref VpcCIDR
+        EnableDnsSupport: true
+        EnableDnsHostnames: true
+        Tags:
+          - Key: Name
+            Value: !Ref EnvironmentName
+  
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        Tags:
+          - Key: Name
+            Value: !Ref EnvironmentName
+  
+    InternetGatewayAttachment:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        InternetGatewayId: !Ref InternetGateway
+        VpcId: !Ref VPC
+        
+    InstanceSubnet:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPC
+        AvailabilityZone: !Select [ 0, !GetAZs '' ]
+        CidrBlock: !Ref PublicSubnet1CIDR
+        MapPublicIpOnLaunch: true
+        Tags:
+          - Key: Name
+            Value: !Sub ${EnvironmentName} Public Subnet (AZ1)
+
+    
+    
+    FirwallSubnet: # this is where the aws firewall newtork vpc endpoint will reside
+        Type: AWS::EC2::Subnet
+        Properties:
+           VpcId: !Ref VPC 
+           AvailabilityZone: !Select [1, !GetAZs '']
+           CidrBlock: !Ref FirewallSubnetCIDR
+           
+            
+    InstanceRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref VPC
+        Tags:
+          - Key: Name
+            Value: !Sub ${EnvironmentName} Public Routes
+            
+    FirewallRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties:
+          VpcId: !Ref VPC
+          Tags:
+            - Key: Name
+              Value: !Sub ${EnvironmentName} Firewall Routes 
+              
+    GatwayRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties:
+           VpcId: !Ref VPC
+           Tags:
+            - Key: Name
+              Value: !Sub ${EnvironmentName} Gatway Routes 
+              
+              
+    FirewallRoute:
+       Type: AWS::EC2::Route
+       Properties:
+           RouteTableId: FirewallRouteTable
+           DestinationCidrBlock: 0.0.0.0/0
+           GatewayId: !Ref InternetGateway
+    
+    NetworkFirewallEndpoint:
+        Type: AWS::NetworkFirewall::Firewall
+        Properties: 
+          DeleteProtection: Boolean
+          Description: String
+          FirewallName: String
+          FirewallPolicyArn: String
+          FirewallPolicyChangeProtection: Boolean
+          SubnetChangeProtection: Boolean
+          SubnetMappings: 
+            - SubnetMapping
+          Tags: 
+            - Tag
+          VpcId: String
+
+    
+    GatwayRoute:
+        Type: AWS::EC2::Route
+        Properties:
+           RouteTableId: !Ref GatwayRouteTable
+           DestinationCidrBlock: !Ref InstanceSubnetCIDR
+           
+
+    InstanceRoute:
+      Type: AWS::EC2::Route
+      DependsOn: InternetGatewayAttachment
+      Properties:
+        RouteTableId: !Ref PublicRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        VpcEndpointId: !Select [0 , !GetAtt NetworkFirewallEndpoint.EndpointIds ] 
+                        
+        
+  
+    InstanceSubnetRouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        RouteTableId: !Ref InstanceRouteTable
+        SubnetId: !Ref InstanceSubnet
+            
+    
+    FirewallSubnetRouteTableAssociation:
+        Type: AWS::EC2:: SubnetRouteTableAssociation
+        Properties:
+         RouteTableId: !Ref FirewallRouteTable
+         SubnetId: !Ref FirewallSubnetCIDR
+    
+    EdgeAssociation:
+        Type: AWS::EC2::GatewayRouteTableAssociation
+        Properties: 
+          GatewayId: !Ref InternetGateway
+          RouteTableId: !FirewallRouteTable
