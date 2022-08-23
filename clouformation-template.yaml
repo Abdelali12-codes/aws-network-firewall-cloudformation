@@ -15,7 +15,7 @@ Parameters:
     Type: String
     Default: 10.192.12.0/24
     
- Resources:
+Resources:
  
     VPC:
       Type: AWS::EC2::VPC
@@ -53,7 +53,7 @@ Parameters:
 
     
     
-    FirwallSubnet: # this is where the aws firewall newtork vpc endpoint will reside
+    FirewallSubnet: # this is where the aws firewall newtork vpc endpoint will reside
         Type: AWS::EC2::Subnet
         Properties:
            VpcId: !Ref VPC 
@@ -83,31 +83,85 @@ Parameters:
            VpcId: !Ref VPC
            Tags:
             - Key: Name
-              Value: !Sub ${EnvironmentName} Gatway Routes 
+              Value: !Sub ${EnvironmentName} Gateway Routes 
               
               
     FirewallRoute:
        Type: AWS::EC2::Route
        Properties:
-           RouteTableId: FirewallRouteTable
+           RouteTableId: !Ref FirewallRouteTable
            DestinationCidrBlock: 0.0.0.0/0
            GatewayId: !Ref InternetGateway
-    
+           
+    # aws firewall network
     NetworkFirewallEndpoint:
-        Type: AWS::NetworkFirewall::Firewall
-        Properties: 
-          DeleteProtection: Boolean
-          Description: String
-          FirewallName: String
-          FirewallPolicyArn: String
-          FirewallPolicyChangeProtection: Boolean
-          SubnetChangeProtection: Boolean
-          SubnetMappings: 
-            - SubnetMapping
-          Tags: 
-            - Tag
-          VpcId: String
+       Type: AWS::NetworkFirewall::Firewall
+       Properties:
+          FirewallName: AWSNetworkFirewall
+          FirewallPolicyArn: !Ref NetworkFirewallPolicy
+          VpcId: !Ref VPC
+          SubnetMappings:
+            - SubnetId: !Ref FirewallSubnet
+          Description: Demo Network Firewall
+          Tags:
+            - Key: Name
+              Value: AWSNetworkFirewall
 
+          
+    # aws firewall network policy     
+    NetworkFirewallPolicy:
+        Type: AWS::NetworkFirewall::FirewallPolicy
+        Properties:
+          FirewallPolicyName: DemoFirewallPolicy
+          FirewallPolicy:
+            StatelessDefaultActions:
+              - 'aws:forward_to_sfe'
+            StatelessFragmentDefaultActions:
+              - 'aws:forward_to_sfe'
+            StatelessRuleGroupReferences:
+              - ResourceArn: !Ref StatelessRuleGroup
+                Priority: 100
+            StatefulRuleGroupReferences:
+              - ResourceArn: !Ref StatefulRuleGroup
+          Description: Demo FirewallPolicy
+          Tags:
+            - Key: Name
+              Value: DemoFirewallPolicy
+            
+    # aws network firewall stateless rule group
+    NetworkFirewallStatelessRuleGroup:
+        Type: AWS::NetworkFirewall::RuleGroup
+        Properties:
+          RuleGroupName: StatelessRuleGroup
+          Type: STATELESS
+          Capacity: 50
+          RuleGroup:
+            RulesSource:
+              StatelessRulesAndCustomActions:
+                StatelessRules:
+                  - RuleDefinition:
+                      MatchAttributes:
+                        Sources:
+                          - AddressDefinition: 0.0.0.0/0
+                        Destinations:
+                          - AddressDefinition: 0.0.0.0/0
+                      Actions:
+                        - aws:forward_to_sfe
+                    Priority: 10
+                    
+    # aws network firewall statefull rule group
+    NetworkFirewallStatefulRuleGroup:
+        Type: AWS::NetworkFirewall::RuleGroup
+        Properties:
+          RuleGroupName: StatefulRuleGroup
+          Type: STATEFUL
+          Capacity: 50
+          RuleGroup:
+            RulesSource:
+              RulesString: >-
+                pass http any any -> any any
+                (msg: "All traffic is permitted"; sid: 100000; rev:1;)
+                
     
     GatwayRoute:
         Type: AWS::EC2::Route
@@ -122,7 +176,7 @@ Parameters:
       Properties:
         RouteTableId: !Ref PublicRouteTable
         DestinationCidrBlock: 0.0.0.0/0
-        VpcEndpointId: !Select [0 , !GetAtt NetworkFirewallEndpoint.EndpointIds ] 
+        VpcEndpointId: !Select [1, !Split [":", !Select [0, !GetAtt NetworkFirewallEndpoint.EndpointIds]]]
                         
         
   
@@ -134,13 +188,13 @@ Parameters:
             
     
     FirewallSubnetRouteTableAssociation:
-        Type: AWS::EC2:: SubnetRouteTableAssociation
+        Type: AWS::EC2::SubnetRouteTableAssociation
         Properties:
          RouteTableId: !Ref FirewallRouteTable
-         SubnetId: !Ref FirewallSubnetCIDR
+         SubnetId: !Ref FirewallSubnet
     
     EdgeAssociation:
         Type: AWS::EC2::GatewayRouteTableAssociation
         Properties: 
           GatewayId: !Ref InternetGateway
-          RouteTableId: !FirewallRouteTable
+          RouteTableId: !Ref FirewallRouteTable
